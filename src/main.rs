@@ -1,10 +1,12 @@
 extern crate rusoto_core;
 extern crate rusoto_s3;
-extern crate time;
+// extern crate time;
+extern crate clap;
 
 use std::env;
 use std::str;
-use time::Time;
+// use time::Time;
+use clap::{App, Arg};
 
 // TODO review how credentials are looked up by default
 use rusoto_core::{Region, RusotoError};
@@ -44,8 +46,24 @@ impl S3Demo {
             bucket_deleted: false,
         }
     }
-
     // TODO should there be more traits implemented for the S3Demo?
+}
+
+fn create_demo_bucket(demo: &S3Demo, bucket_name: &String) {
+    
+    let create_bucket_req = CreateBucketRequest {
+        bucket: bucket_name.clone(),
+        ..Default::default()
+    };
+
+    // first create a bucket
+    let create_bucket_resp = demo.s3.create_bucket(create_bucket_req).sync();
+    assert!(create_bucket_resp.is_ok());
+    println!(
+        "Bucket {} created\n response:\n {:#?}",
+        bucket_name.clone(),
+        create_bucket_resp.unwrap()
+    );
 }
 
 fn delete_demo_bucket(client: &S3Client, bucket: &str) {
@@ -68,33 +86,19 @@ fn delete_demo_bucket(client: &S3Client, bucket: &str) {
     }
 }
 
-// creates a bucket and test listing buckets and items in bucket
-fn s3_demo_creation_deletion() {
+// TODO a function to add an item
+// TODO and break this and listing the items into a different function
+// that we then call here like we eventually do with deletion.
+// Or rig these up with CLI options with CLAP
 
-    let bucket_name = format!("rust-devops-webinar-demo-bucket-{}", Time::now().second());
-    let mut demo = S3Demo::new(bucket_name.clone());
+// test listing buckets and items in bucket
+fn find_demo_bucket_list_objects(s3: &S3Client, bucket_name: &String) {
 
-    let create_bucket_req = CreateBucketRequest {
-        bucket: bucket_name.clone(),
-        ..Default::default()
-    };
-
-    // first create a bucket
-    let create_bucket_resp = demo.s3.create_bucket(create_bucket_req).sync();
-    assert!(create_bucket_resp.is_ok());
-    println!(
-        "Bucket {} created\n response:\n {:#?}",
-        bucket_name.clone(),
-        create_bucket_resp.unwrap()
-    );
-
-    // TODO add an item
-    // TODO and break this and listing the items into a different function
-    // that we then call here like we eventually do with deletion.
-    // Or rig these up with CLI options with CLAP
+    // let bucket_name = format!("rust-devops-webinar-demo-bucket-{}", Time::now().second());
+    // let mut demo = S3Demo::new(bucket_name.clone());
 
     // now lets check for our bucket and list items in the one we created
-    let resp = demo.s3.list_buckets().sync();
+    let resp = s3.list_buckets().sync();
     assert!(resp.is_ok());
 
     let resp = resp.unwrap();
@@ -112,22 +116,84 @@ fn s3_demo_creation_deletion() {
         start_after: Some("foo".to_owned()), // TODO
         ..Default::default()
     };
-    let result = demo.s3.list_objects_v2(list_obj_req).sync();
+    let result = s3.list_objects_v2(list_obj_req).sync();
     assert!(result.is_ok());
     println!(
         "List response was: \n {:#?}",
         result.unwrap()
     );
-
-    // TODO add this to a different function (or make a clap option to create and delete)
-
-    // now delete the bucket
-    delete_demo_bucket(&demo.s3, &bucket_name);
-    demo.bucket_deleted = true;
 }
 
 fn main() {
     println!("Running tool");
-    s3_demo_creation_deletion();
+
+    let matches = App::new("RustAWSDevops")
+        .version("0.1.0")
+        .author("Mike McGirr <mike@fpcomplete.com>")
+        .about("A very small devops tool written in Rust")
+        .subcommand(
+            App::new("create")
+                .about("Create a new bucket with the given name")
+                .arg( // TODO test
+                    Arg::with_name("bucket")
+                        .help("bucket name")
+                        .index(1)
+                        .required(true),
+                ),
+        )
+        .subcommand(
+            App::new("delete")
+                .about("Try to delete the bucket with the given name")
+                .arg( // TODO test
+                    Arg::with_name("bucket")
+                        .help("bucket name")
+                        .index(1)
+                        .required(true),
+                ),
+        )
+        .subcommand(
+            App::new("list")
+                .about("Try to find the bucket with the given name and list its objects")
+                .arg( // TODO test
+                    Arg::with_name("bucket")
+                        .help("bucket name")
+                        .index(1)
+                        .required(true),
+                ),
+        )
+        .get_matches();
+
+    // check what action the operator wants to do
+    if let Some(ref matches) = matches.subcommand_matches("create") {
+        let bucket_name = matches.value_of("bucket").unwrap().to_string();
+        println!("Attempting to create a bucket called: {}", bucket_name.clone());
+        let demo = S3Demo::new(bucket_name.clone());
+        create_demo_bucket(&demo, &bucket_name);
+    }
+
+    if let Some(ref matches) = matches.subcommand_matches("delete") {
+        let bucket_name = matches.value_of("bucket").unwrap().to_string();
+        println!("Attempting to delete the bucket named: {}", bucket_name.clone());
+        let demo = S3Demo::new(bucket_name.clone());
+        delete_demo_bucket(&demo.s3, &bucket_name);
+        // demo.bucket_deleted = true;
+    }
+
+    if let Some(ref matches) = matches.subcommand_matches("list") {
+        let bucket_name = matches.value_of("bucket").unwrap().to_string();
+        println!("Attempting to find and list out the objects in the bucket called: {}", bucket_name.clone());
+        let demo = S3Demo::new(bucket_name.clone());
+        find_demo_bucket_list_objects(&demo.s3, &bucket_name);
+    }
+
+    // Handle if no arg is given to the tool
+
+    // TODO look into switching the above to this style of matching
+    // match matches.subcommand_name() {
+    //     Some("create") => create_demo_bucket(client: &S3Demo, bucket_name: String),
+    //     None => println!("No command given. It's unclear what action to take."),
+    //     _ => println!("Unknown subcommand. No action taken")
+    // }
+
     println!("All done!");
 }
