@@ -29,7 +29,7 @@ aws-env rust-aws-devops delete-object fpcomplete-webinar-demo test.txt
 Delete a bucket:
 
 ```
-aws-env ./target/debug/rust-aws-devops delete fpcomplete-webinar-demo
+aws-env rust-aws-devops delete fpcomplete-webinar-demo
 ```
 
 **NOTE**: These CLI instructions use `aws-env` which is a helper script to that deals with AWS creds. 
