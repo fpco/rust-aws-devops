@@ -162,7 +162,7 @@ fn find_demo_bucket_list_objects(demo: &S3Demo) {
 
     let list_obj_req = ListObjectsV2Request {
         bucket: demo.bucket_name.to_owned(),
-        start_after: Some("foo".to_owned()), // TODO
+        start_after: Some("foo".to_owned()),
         ..Default::default()
     };
     let result = demo.s3.list_objects_v2(list_obj_req).sync();
@@ -183,7 +183,7 @@ fn main() {
         .subcommand(
             App::new("create")
                 .about("Create a new bucket with the given name")
-                .arg( // TODO test
+                .arg(
                     Arg::with_name("bucket")
                         .help("bucket name")
                         .index(1)
