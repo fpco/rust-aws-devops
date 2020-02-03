@@ -1,25 +1,25 @@
 extern crate rusoto_core;
 extern crate rusoto_s3;
-// extern crate time;
 extern crate clap;
 
 use std::env;
 use std::str;
-// use time::Time;
+use std::fs::File;
+use std::io::Read;
+
 use clap::{App, Arg};
 
-// TODO review how credentials are looked up by default
 use rusoto_core::{Region, RusotoError};
 use rusoto_s3::{
-    S3, S3Client, CreateBucketRequest, ListObjectsV2Request, DeleteBucketRequest
+    S3, S3Client,
+    CreateBucketRequest, DeleteBucketRequest,
+    ListObjectsV2Request,
+    PutObjectRequest, DeleteObjectRequest
 };
 
 struct S3Demo {
-    region: Region,
     s3: S3Client,
     bucket_name: String,
-    // This flag signifies whether this bucket was already deleted as part of a test
-    bucket_deleted: bool,
 }
 
 impl S3Demo {
@@ -40,19 +40,52 @@ impl S3Demo {
         };
 
         S3Demo {
-            region: region.to_owned(),
             s3: S3Client::new(region),
             bucket_name: bucket_name.to_owned(),
-            bucket_deleted: false,
         }
     }
-    // TODO should there be more traits implemented for the S3Demo?
+
+    fn put_object(&self, dest_filename: &str, local_filename: &str) {
+        let mut contents: Vec<u8> = Vec::new();
+        let mut f = File::open(local_filename).unwrap();
+
+        match f.read_to_end(&mut contents) {
+            Err(why) => panic!("Error opening file to send to S3: {}", why),
+            Ok(_) => {
+                let req = PutObjectRequest {
+                    bucket: self.bucket_name.to_owned(),
+                    key: dest_filename.to_owned(),
+                    body: Some(contents.into()),
+                    ..Default::default()
+                };
+
+                self.s3
+                    .put_object(req)
+                    .sync()
+                    .expect("Failed to put test object");
+            }
+        }
+
+    }
+
+    fn delete_object(&self, key: String) {
+        let delete_object_req = DeleteObjectRequest {
+            bucket: self.bucket_name.to_owned(),
+            key: key.to_owned(),
+            ..Default::default()
+        };
+
+        self.s3
+            .delete_object(delete_object_req)
+            .sync()
+            .expect("Couldn't delete object");
+    }
 }
 
-fn create_demo_bucket(demo: &S3Demo, bucket_name: &String) {
-    
+fn create_demo_bucket(demo: &S3Demo) {
+
     let create_bucket_req = CreateBucketRequest {
-        bucket: bucket_name.clone(),
+        bucket: demo.bucket_name.clone(),
         ..Default::default()
     };
 
@@ -61,18 +94,18 @@ fn create_demo_bucket(demo: &S3Demo, bucket_name: &String) {
     assert!(create_bucket_resp.is_ok());
     println!(
         "Bucket {} created\n response:\n {:#?}",
-        bucket_name.clone(),
+        demo.bucket_name.clone(),
         create_bucket_resp.unwrap()
     );
 }
 
-fn delete_demo_bucket(client: &S3Client, bucket: &str) {
+fn delete_demo_bucket(demo: &S3Demo) {
     let delete_bucket_req = DeleteBucketRequest {
-        bucket: bucket.to_owned(),
+        bucket: demo.bucket_name.to_owned(),
         ..Default::default()
     };
 
-    let result = client.delete_bucket(delete_bucket_req).sync();
+    let result = demo.s3.delete_bucket(delete_bucket_req).sync();
     println!("{:#?}", result);
     match result {
         Err(e) => match e {
@@ -86,25 +119,41 @@ fn delete_demo_bucket(client: &S3Client, bucket: &str) {
     }
 }
 
-// TODO a function to add an item
-// TODO and break this and listing the items into a different function
-// that we then call here like we eventually do with deletion.
-// Or rig these up with CLI options with CLAP
+// A function to demo another way to add an item (if you didn't want to use the trait implementation)
+// This method is stand-alone function
+fn _test_put_object(
+    demo: &S3Demo,
+    dest_filename: &str,
+    local_filename: &str,
+) {
+    let mut f = File::open(local_filename).unwrap();
+    let mut contents: Vec<u8> = Vec::new();
+    match f.read_to_end(&mut contents) {
+        Err(why) => panic!("Error opening file to send to S3: {}", why),
+        Ok(_) => {
+            let req = PutObjectRequest {
+                bucket: demo.bucket_name.to_owned(),
+                key: dest_filename.to_owned(),
+                body: Some(contents.into()),
+                ..Default::default()
+            };
+            let result = demo.s3.put_object(req).sync().expect("Couldn't PUT object");
+            println!("{:#?}", result);
+        }
+    }
+}
 
 // test listing buckets and items in bucket
-fn find_demo_bucket_list_objects(s3: &S3Client, bucket_name: &String) {
-
-    // let bucket_name = format!("rust-devops-webinar-demo-bucket-{}", Time::now().second());
-    // let mut demo = S3Demo::new(bucket_name.clone());
+fn find_demo_bucket_list_objects(demo: &S3Demo) {
 
     // now lets check for our bucket and list items in the one we created
-    let resp = s3.list_buckets().sync();
+    let resp = demo.s3.list_buckets().sync();
     assert!(resp.is_ok());
 
     let resp = resp.unwrap();
     let mut bucket_found = false;
     for bucket in resp.buckets.unwrap().iter() {
-        if bucket.name == Some(bucket_name.clone()) {
+        if bucket.name == Some(demo.bucket_name.clone()) {
             bucket_found = true;
             break;
         }
@@ -112,11 +161,11 @@ fn find_demo_bucket_list_objects(s3: &S3Client, bucket_name: &String) {
     assert!(bucket_found);
 
     let list_obj_req = ListObjectsV2Request {
-        bucket: bucket_name.to_owned(),
+        bucket: demo.bucket_name.to_owned(),
         start_after: Some("foo".to_owned()), // TODO
         ..Default::default()
     };
-    let result = s3.list_objects_v2(list_obj_req).sync();
+    let result = demo.s3.list_objects_v2(list_obj_req).sync();
     assert!(result.is_ok());
     println!(
         "List response was: \n {:#?}",
@@ -144,7 +193,7 @@ fn main() {
         .subcommand(
             App::new("delete")
                 .about("Try to delete the bucket with the given name")
-                .arg( // TODO test
+                .arg(
                     Arg::with_name("bucket")
                         .help("bucket name")
                         .index(1)
@@ -154,10 +203,42 @@ fn main() {
         .subcommand(
             App::new("list")
                 .about("Try to find the bucket with the given name and list its objects")
-                .arg( // TODO test
+                .arg(
                     Arg::with_name("bucket")
                         .help("bucket name")
                         .index(1)
+                        .required(true),
+                ),
+        )
+        .subcommand(
+            App::new("add-object")
+                .about("Add the specified file to the bucket")
+                .arg(
+                    Arg::with_name("bucket")
+                        .help("bucket name")
+                        .index(1)
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("file")
+                        .help("file name")
+                        .index(2)
+                        .required(true),
+                ),
+        )
+        .subcommand(
+            App::new("delete-object")
+                .about("Remove the specified object from the bucket")
+                .arg(
+                    Arg::with_name("bucket")
+                        .help("bucket name")
+                        .index(1)
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("file")
+                        .help("file name")
+                        .index(2)
                         .required(true),
                 ),
         )
@@ -168,32 +249,39 @@ fn main() {
         let bucket_name = matches.value_of("bucket").unwrap().to_string();
         println!("Attempting to create a bucket called: {}", bucket_name.clone());
         let demo = S3Demo::new(bucket_name.clone());
-        create_demo_bucket(&demo, &bucket_name);
+        create_demo_bucket(&demo);
     }
 
     if let Some(ref matches) = matches.subcommand_matches("delete") {
         let bucket_name = matches.value_of("bucket").unwrap().to_string();
         println!("Attempting to delete the bucket named: {}", bucket_name.clone());
         let demo = S3Demo::new(bucket_name.clone());
-        delete_demo_bucket(&demo.s3, &bucket_name);
-        // demo.bucket_deleted = true;
+        delete_demo_bucket(&demo);
     }
 
     if let Some(ref matches) = matches.subcommand_matches("list") {
         let bucket_name = matches.value_of("bucket").unwrap().to_string();
         println!("Attempting to find and list out the objects in the bucket called: {}", bucket_name.clone());
         let demo = S3Demo::new(bucket_name.clone());
-        find_demo_bucket_list_objects(&demo.s3, &bucket_name);
+        find_demo_bucket_list_objects(&demo);
     }
 
-    // Handle if no arg is given to the tool
+    if let Some(ref matches) = matches.subcommand_matches("add-object") {
+        let bucket_name = matches.value_of("bucket").unwrap().to_string();
+        let filename = matches.value_of("file").unwrap().to_string();
+        println!("Attempting to the object to the bucket called: {}", bucket_name.clone());
+        let demo = S3Demo::new(bucket_name.clone());
+        demo.put_object(&filename, &filename);         // the trait implementation way
+        // _test_put_object(&demo, &filename, &filename); // the stand-alone function way
+    }
 
-    // TODO look into switching the above to this style of matching
-    // match matches.subcommand_name() {
-    //     Some("create") => create_demo_bucket(client: &S3Demo, bucket_name: String),
-    //     None => println!("No command given. It's unclear what action to take."),
-    //     _ => println!("Unknown subcommand. No action taken")
-    // }
+    if let Some(ref matches) = matches.subcommand_matches("delete-object") {
+        let bucket_name = matches.value_of("bucket").unwrap().to_string();
+        let filename = matches.value_of("file").unwrap().to_string();
+        println!("Attempting to find and the object in the bucket called: {}", bucket_name.clone());
+        let demo = S3Demo::new(bucket_name.clone());
+        demo.delete_object(filename); 
+    }
 
     println!("All done!");
 }
