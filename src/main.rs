@@ -26,7 +26,7 @@ impl S3Demo {
     fn new(bucket_name: String) -> S3Demo {
         let region = if let Ok(endpoint) = env::var("S3_ENDPOINT") {
             let region = Region::Custom {
-                name: "us-east-1".to_owned(),
+                name: "us-east-1".to_string(),
                 endpoint,
             };
             println!(
@@ -52,8 +52,8 @@ impl S3Demo {
             Err(why) => panic!("Error opening file to send to S3: {}", why),
             Ok(_) => {
                 let req = PutObjectRequest {
-                    bucket: self.bucket_name.to_owned(),
-                    key: dest_filename.to_owned(),
+                    bucket: self.bucket_name.clone(),
+                    key: dest_filename.to_string(),
                     body: Some(contents.into()),
                     ..Default::default()
                 };
@@ -69,7 +69,7 @@ impl S3Demo {
 
     fn delete_object(&self, key: String) {
         let delete_object_req = DeleteObjectRequest {
-            bucket: self.bucket_name.to_owned(),
+            bucket: self.bucket_name.clone(),
             key,
             ..Default::default()
         };
@@ -99,7 +99,7 @@ fn create_demo_bucket(demo: &S3Demo) {
 
 fn delete_demo_bucket(demo: &S3Demo) {
     let delete_bucket_req = DeleteBucketRequest {
-        bucket: demo.bucket_name.to_owned(),
+        bucket: demo.bucket_name.clone(),
     };
 
     let result = demo.s3.delete_bucket(delete_bucket_req).sync();
@@ -126,8 +126,8 @@ fn _test_put_object(
         Err(why) => panic!("Error opening file to send to S3: {}", why),
         Ok(_) => {
             let req = PutObjectRequest {
-                bucket: demo.bucket_name.to_owned(),
-                key: dest_filename.to_owned(),
+                bucket: demo.bucket_name.clone(),
+                key: dest_filename.to_string(),
                 body: Some(contents.into()),
                 ..Default::default()
             };
@@ -155,8 +155,8 @@ fn find_demo_bucket_list_objects(demo: &S3Demo) {
     assert!(bucket_found);
 
     let list_obj_req = ListObjectsV2Request {
-        bucket: demo.bucket_name.to_owned(),
-        start_after: Some("foo".to_owned()),
+        bucket: demo.bucket_name.clone(),
+        start_after: Some("foo".to_string()),
         ..Default::default()
     };
     let result = demo.s3.list_objects_v2(list_obj_req).sync();
