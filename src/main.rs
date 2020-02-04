@@ -1,6 +1,5 @@
 extern crate rusoto_core;
 extern crate rusoto_s3;
-extern crate clap;
 
 use std::env;
 use std::str;
